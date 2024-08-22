@@ -2,7 +2,7 @@
 # Copyright 2015-2024 Tecnativa - Pedro M. Baeza
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
 
-from odoo import _, api, fields, models
+from odoo import _, api, fields, models, Command
 from odoo.exceptions import UserError
 from odoo.tools import float_compare
 
@@ -11,6 +11,20 @@ class HrExpenseSheet(models.Model):
     _inherit = "hr.expense.sheet"
 
     invoice_count = fields.Integer(compute="_compute_invoice_count")
+
+    def _prepare_bill_vals(self):
+        """ Rewriting the original function from hr_expense to not post the already invoiced lines"""
+        self.ensure_one()
+        return {
+            **self._prepare_move_vals(),
+            # force the name to the default value, to avoid an eventual 'default_name' in the context
+            # to set it to '' which cause no number to be given to the account.move when posted.
+            'journal_id': self.journal_id.id,
+            'move_type': 'in_invoice',
+            'partner_id': self.employee_id.sudo().address_home_id.commercial_partner_id.id,
+            'currency_id': self.currency_id.id,
+            'line_ids': [Command.create(expense._prepare_move_line_vals()) for expense in self.expense_line_ids if not expense.invoice_id],
+        }
 
     def action_sheet_move_create(self):
         """Perform extra checks and set proper state and payment state according linked
